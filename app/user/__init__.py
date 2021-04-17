@@ -1,8 +1,8 @@
 from .. import Base, Session, env
 
-from flask import Blueprint
+from fastapi import APIRouter
 
-user_bp = Blueprint("user", __name__)
+user_rt = APIRouter()
 
 
 from . import api

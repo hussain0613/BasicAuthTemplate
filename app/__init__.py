@@ -7,16 +7,16 @@ engine, Base, Session = db_init(env)
 
 from .user.models import User
 
-from flask import Flask
+from fastapi import FastAPI
 
 
 def create_app():
-    app = Flask(__name__)
-    app.config.from_mapping(env)
+    app = FastAPI()
+    #app.config.from_mapping(env)
 
-    from .user import user_bp
+    from .user import user_rt
     
-    app.register_blueprint(user_bp, url_prefix="/user/")
+    app.include_router(user_rt, prefix="/user")
     
     return app
 

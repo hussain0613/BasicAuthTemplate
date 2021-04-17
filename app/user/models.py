@@ -9,7 +9,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 
 import bcrypt
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
-from itsdangerous.exc import SignatureExpired
+from itsdangerous.exc import SignatureExpired, BadSignature
 
 import re
 
@@ -153,6 +153,8 @@ class User(Base):
             payload = s.loads(token.encode())
         except SignatureExpired as err:
             return {"message": 'token expired'}
+        except BadSignature as err:
+            return {"message": 'invalid token'}
         email = payload['email']
         scope = payload['scope']
         user = User.get_user_by(session, email = email)
@@ -186,6 +188,8 @@ class User(Base):
             payload = s.loads(token.encode())
         except SignatureExpired as err:
             return {"message": 'token expired'}
+        except BadSignature as err:
+            return {"message": 'invalid token'}
         username = payload['username']
         scope = payload['scope']
         if username and scope == "login":
