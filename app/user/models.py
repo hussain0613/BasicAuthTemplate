@@ -9,6 +9,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 
 import bcrypt
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
+from itsdangerous.exc import SignatureExpired
 
 import re
 
@@ -64,25 +65,25 @@ class User(Base):
         if(re.match("^[a-zA-Z0-9_.]{1,200}$", username)):
             self._username = username
         else:
-            raise BaseException(f"username '{username}' got invalid charecter")
+            raise TypeError(f"username '{username}' got invalid charecter")
     @email.setter
     def email(self, email:str):
         if(re.match("^[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+\.[a-zA-Z0-9_.-]+$", email)):
             self._email = email
         else:
-            raise BaseException(f"email '{email}' got invalid charecter")
+            raise TypeError(f"email '{email}' got invalid charecter")
     @password.setter
     def password(self, password:str):
         if(re.match("^[a-zA-Z0-9_ -]{8,200}$", password)):
-            self._password = password
+            self._password = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
         else:
-            raise BaseException(f"password '{password}' got invalid charecter")
+            raise TypeError(f"invalid password. password must be at least 8 characters long and can have only alphanumeric characters and <space>,<.> and <->")
     @role.setter
     def role(self, role:str):
         if(re.match("^[a-zA-Z0-9_-]{1,50}$", role)):
             self._role = role
         else:
-            raise BaseException(f"role '{role}' got invalid charecter")
+            raise TypeError(f"role '{role}' got invalid charecter")
 
     #@username.setter
     def set_username(self, username:str, password):
@@ -123,8 +124,9 @@ class User(Base):
             return {"Message": "Wrong old password"}
     
 
-    def check_password(self, passowrd:str) -> bool:
-        return bcrypt.checkpw(passowrd.encode(), self.password.encode())
+    def check_password(self, password:str) -> bool:
+        #bcrypt.checkpw(pass, hashed_pass)
+        return bcrypt.checkpw(password.encode(), self.password.encode())
 
     def save(self, session):
         self.session = session
@@ -141,22 +143,25 @@ class User(Base):
         if(user):
             s = Serializer(secret_key, 300)
             return {"Message": "Genereted token succesfully, need to implement mail to email",
-            "Token":s.dumps({"email": email, "scope": "reset_password"})}
+            "Token":s.dumps({"email": email, "scope": "reset_password"}).decode()}
         else:
             return {"Message": f"User with email='{email}' does not exist"}
 
     def reset_password(new_password: str, token:str, secret_key: str, session) -> dict:
         s = Serializer(secret_key)
-        payload = s.loads(token)
+        try:
+            payload = s.loads(token.encode())
+        except SignatureExpired as err:
+            return {"message": 'token expired'}
         email = payload['email']
         scope = payload['scope']
         user = User.get_user_by(session, email = email)
         if user and scope == "reset_password":
-            user._set_password(new_password)
+            user.password = new_password
             session.commit()
-            return {"message", "password changed succesfully"}
+            return {"message": "password changed succesfully"}
         else:
-            return {"message", "invalid token"}
+            return {"message": "invalid token"}
         
 
     def get_user_by(session, **kwargs):
@@ -167,17 +172,20 @@ class User(Base):
     
 
     def get_login_token(session, secret_key, password, **kwargs):
-        user = User.get_user_by(session, kwargs)
+        user = User.get_user_by(session, **kwargs)
         if(user and user.check_password(password)):
             s = Serializer(secret_key, 15811200) # about 1/2 a year
             return {"message": f"Successfully logged in as {user.username}", 
-            "token": s.dumps({"username": user.username, "scope": "login"})}
+            "token": s.dumps({"username": user.username, "scope": "login"}).decode()}
         else:
             return {"message": "wrong username/password", "token": None}
     
     def verify_login_token(token, session, secret_key):
         s = Serializer(secret_key)
-        payload = s.loads(token)
+        try:
+            payload = s.loads(token.encode())
+        except SignatureExpired as err:
+            return {"message": 'token expired'}
         username = payload['username']
         scope = payload['scope']
         if username and scope == "login":
@@ -202,6 +210,8 @@ class User(Base):
             if(session.bind.echo):
                 print(f"[!] {err._message()}")
             return {"Message": err._message()}
+        except TypeError as err:
+            return {"Message": str(err)}
     
     def delete_user(session, **kwargs):
         user = User.get_user_by(**kwargs)
