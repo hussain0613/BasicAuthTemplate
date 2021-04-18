@@ -10,6 +10,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 import bcrypt
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from itsdangerous.exc import SignatureExpired, BadSignature
+import secrets
 
 import re
 
@@ -28,6 +29,8 @@ class User(Base):
     _password = sa.Column("password", sa.String(300))
 
     _role = sa.Column("role", sa.String(50), server_default = "guest")
+
+    uid = sa.Column("uid", sa.String(200), default = secrets.token_urlsafe, unique = True)
 
     created = sa.Column(sa.TIMESTAMP(timezone=True), server_default = sa.func.now())
     created_by = sa.Column(sa.Integer, sa.ForeignKey(f"{__tablename__}.id"))
@@ -88,45 +91,38 @@ class User(Base):
     #@username.setter
     def set_username(self, username:str, password):
         if(self.check_password(passowrd)):
-            #if(re.match("^[a-zA-Z0-9_.]{1,200}$", username)):
-            #    self._username = username
-            #    return {"Message": "username updated successfully, in queue for storage"}
-            #else:
-            #    return {"Message": "Invalid username format!"}
             self.username = username
+
+            return {'message': 'new username queued for storage'}
         else:
             return {"Message": "Wrong password"}
         
     #@email.setter
     def set_email(self, email:str, passowrd:str):
         if(self.check_password(passowrd)):
-        #    if(re.match("^[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+\.[a-zA-Z0-9_.-]+$", email)):
-        #        self._email = email
-        #        return {"Message": "email updated successfully, in queue for storage"}
-        #    else:
-        #        return {"Message": "Invalid email format!"}
             self.email = email
+            return {'message': 'new email queued for storage'}
         else:
             return {"Message": "Wrong password"}
-    #@password.setter
-    #def _set_password(self, new_password:str):
-    #    if re.match("^[a-zA-Z0-9_ -]{8,200}$", new_password):
-    #        self._password = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
-    #        return {"Message": "passowrd updated, in queue for saving"}
-    #    else:
-    #        return {"Message": "invalid charecter in password"}
-
+    
     def set_password(self, new_password:str, old_password:str):
         if self.check_password(old_password):
-            #return self._set_passowrd(new_password)
             self.password = new_password
+            self.set_uid() ## so that whenever someone changes there password uid will change too
+            return {'message': 'new password queued for storage'}
         else:
             return {"Message": "Wrong old password"}
     
 
     def check_password(self, password:str) -> bool:
-        #bcrypt.checkpw(pass, hashed_pass)
         return bcrypt.checkpw(password.encode(), self.password.encode())
+    
+    def set_uid(self, passowrd:str):
+        if(self.check_password(passowrd)):
+            self.uid = secrets.token_urlsafe(64)
+            return {'message': 'new uid queued for storage'}
+        else:
+            return {"Message": "Wrong password"}
 
     def save(self, session):
         self.session = session
@@ -135,31 +131,38 @@ class User(Base):
             session.commit()
             return {"Message": f"Information updated succesfully for user '{self.username}'"}
         except sa.exc.IntegrityError as err:
+            if User.__tablename__+'.uid' in err._message():
+                self.uid = secrets.token_urlsafe(64)
+                session.rollback()
+                return self.save(session)
             return {"Message": err._message()}
 
     
     def get_reset_password_token(email: str, secret_key:str, session) -> str:
         user = User.get_user_by(session, email = email)
         if(user):
-            s = Serializer(secret_key, 300)
+            s = Serializer(user.uid + secret_key + user.password, 300)
             return {"Message": "Genereted token succesfully, need to implement mail to email",
-            "Token":s.dumps({"email": email, "scope": "reset_password"}).decode()}
+            "Token":s.dumps({"uid": user.uid, "scope": "reset_password"}).decode()}
         else:
             return {"Message": f"User with email='{email}' does not exist"}
 
-    def reset_password(new_password: str, token:str, secret_key: str, session) -> dict:
-        s = Serializer(secret_key)
+    def reset_password(email:str, new_password: str, token:str, secret_key: str, session) -> dict:
+        user = User.get_user_by(session, email = email)
+        if(not user): return {"message": "wrong email"}
+        s = Serializer(user.uid + secret_key + user.password)
         try:
             payload = s.loads(token.encode())
         except SignatureExpired as err:
             return {"message": 'token expired'}
         except BadSignature as err:
             return {"message": 'invalid token'}
-        email = payload['email']
+        uid = payload['uid']
         scope = payload['scope']
-        user = User.get_user_by(session, email = email)
-        if user and scope == "reset_password":
+        #user = User.get_user_by(session, uid = uid)
+        if user and user.uid == uid and scope == "reset_password":
             user.password = new_password
+            user.uid =  secrets.token_urlsafe(64)## uid changing
             session.commit()
             return {"message": "password changed succesfully"}
         else:
@@ -178,7 +181,7 @@ class User(Base):
         if(user and user.check_password(password)):
             s = Serializer(secret_key, 15811200) # about 1/2 a year
             return {"message": f"Successfully logged in as {user.username}", 
-            "token": s.dumps({"username": user.username, "scope": "login"}).decode()}
+            "token": s.dumps({"uid": user.uid, "uid2": bcrypt.hashpw(user.password.encode(), bcrypt.gensalt()).decode(),"scope": "login"}).decode()}
         else:
             return {"message": "wrong username/password", "token": None}
     
@@ -187,14 +190,18 @@ class User(Base):
         try:
             payload = s.loads(token.encode())
         except SignatureExpired as err:
-            return {"message": 'token expired'}
+            return {"message": 'token expired', "user": None}
         except BadSignature as err:
-            return {"message": 'invalid token'}
-        username = payload['username']
+            return {"message": 'invalid token', "user": None}
+        uid = payload['uid']
+        uid2 = payload['uid2']
         scope = payload['scope']
-        if username and scope == "login":
-            user = User.get_user_by(session, username=username)
-            return {"message": "verified", "user": user}
+        if uid and uid2 and scope == "login":
+            user = User.get_user_by(session, uid=uid)
+            if bcrypt.checkpw(user.password.encode(), uid2.encode()):
+                return {"message": "verified", "user": user.to_dict()}
+            else:
+                return {"message": "invalid token", "user": None}
         else:
             return {"message": "invalid token", "user": None}
         
@@ -222,6 +229,7 @@ class User(Base):
         if(user):
             session.delete(user)
             session.commit()
+            return {"message": "user removed succefully"}
         else:
             return {"Message": "User does not exist"}
 
@@ -239,7 +247,7 @@ class User(Base):
             'name' : self.name,
             'username' : self.username,
             'email' : self.email,
-            'password' : self.password,
+            #'password' : self.password,
 
             'role' : self.role,
 
