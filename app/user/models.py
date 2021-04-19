@@ -157,8 +157,8 @@ class User(Base):
             return {"message": 'token expired'}
         except BadSignature as err:
             return {"message": 'invalid token'}
-        uid = payload['uid']
-        scope = payload['scope']
+        uid = payload.get('uid')
+        scope = payload.get('scope')
         #user = User.get_user_by(session, uid = uid)
         if user and user.uid == uid and scope == "reset_password":
             user.password = new_password
@@ -193,12 +193,12 @@ class User(Base):
             return {"message": 'token expired', "user": None}
         except BadSignature as err:
             return {"message": 'invalid token', "user": None}
-        uid = payload['uid']
-        uid2 = payload['uid2']
-        scope = payload['scope']
+        uid = payload.get('uid')
+        uid2 = payload.get('uid2')
+        scope = payload.get('scope')
         if uid and uid2 and scope == "login":
             user = User.get_user_by(session, uid=uid)
-            if bcrypt.checkpw(user.password.encode(), uid2.encode()):
+            if user and bcrypt.checkpw(user.password.encode(), uid2.encode()):
                 return {"message": "verified", "user": user.to_dict()}
             else:
                 return {"message": "invalid token", "user": None}
@@ -216,13 +216,13 @@ class User(Base):
             user = User(**kwargs)
             session.add(user)
             session.commit()
-            return user.to_dict()
+            return {'message': 'user created successfully', 'user': user.to_dict()}
         except sa.exc.IntegrityError as err:
             if(session.bind.echo):
                 print(f"[!] {err._message()}")
-            return {"Message": err._message()}
+            return {"Message": err._message(), 'user': None}
         except TypeError as err:
-            return {"Message": str(err)}
+            return {"Message": str(err), 'user': None}
     
     def delete_user(session, **kwargs):
         user = User.get_user_by(**kwargs)
