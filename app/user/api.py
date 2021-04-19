@@ -1,9 +1,9 @@
-from . import Session, user_bp, env
+from . import Session, user_api_bp, env
 from .models import User
 from flask import request, Response
 import json
 
-@user_bp.route("/")
+@user_api_bp.route("/")
 def dahsboard():
     #token = request.args.get('login_token')
     token = request.headers.get_all("Authorization")
@@ -17,7 +17,7 @@ def dahsboard():
     
     return {"Message": "Hello. You are in not logged in dashboard now"}
 
-@user_bp.route("/signup/", methods=["POST"])
+@user_api_bp.route("/signup/", methods=["POST"])
 def sign_up():
     data = json.loads(request.data)
     user = User.create_user(Session(), **data)
@@ -30,7 +30,7 @@ def sign_up():
     
     return resp
 
-@user_bp.route("/login/", methods=["POST"])
+@user_api_bp.route("/token/", methods=["POST"])
 def login():
     data = json.loads(request.data)
     resp = {}
@@ -45,13 +45,13 @@ def login():
         resp["message"] = "No passowrd provided"
     return resp
 
-@user_bp.route("/reset_password/")
+@user_api_bp.route("/reset_password/")
 def request_reset_password():
     data = json.loads(request.data)
     resp = User.get_reset_password_token(data.get('email'), env['SECRET_KEY'], Session())
     return resp
 
-@user_bp.route("/reset_password/", methods= ["POST"])
+@user_api_bp.route("/reset_password/", methods= ["POST"])
 def reset_passowrd():
     token = request.args.get('token')
     data = json.loads(request.data)
@@ -62,7 +62,7 @@ def reset_passowrd():
     return resp
 
 
-@user_bp.route("/get_all_users/")
+@user_api_bp.route("/get_all_users/")
 def all_users():
     users = User.get_all(Session())
     resp = []
