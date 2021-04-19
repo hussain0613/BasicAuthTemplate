@@ -9,6 +9,7 @@ class LoginModel(BaseModel):
     username: Optional[str] #= Field(str, regex="^[a-zA-Z0-9_.]{1,200}$")
     email: Optional[str]
     password: str
+    remember_me: Optional[str]
 
 
 class SignUpModel(BaseModel):
