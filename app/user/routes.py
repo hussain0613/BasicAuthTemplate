@@ -1,6 +1,10 @@
 from . import api_routes
+
 ## now from views
 from . import user_rt
-from .views import dashboard
+from .views import dashboard, login
 
-user_rt.get('/')(dashboard)
+from fastapi.responses import HTMLResponse
+
+user_rt.get('/', response_class = HTMLResponse)(dashboard)
+user_rt.get('/login', response_class = HTMLResponse)(login)

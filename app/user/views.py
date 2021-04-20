@@ -1,12 +1,14 @@
-from fastapi.responses import FileResponse
-from fastapi.responses import HTMLResponse
 from fastapi import Request
-
-async def dashboard():
-    resp = FileResponse(path = "app/user/statics/index.html")
-    return resp
+from fastapi.templating import Jinja2Templates
 
 
-async def login():
-    resp = FileResponse(path = "app/user/statics/index.html")
-    return resp
+templates = Jinja2Templates(directory="app/user/templates")
+
+async def dashboard(request:Request):
+    resp = templates.TemplateResponse(name="index.html", context={'request': request})
+    return resp.body.decode()
+
+
+async def login(request:Request):
+    resp = templates.TemplateResponse(name="login.html", context={'request': request})
+    return resp.body.decode()

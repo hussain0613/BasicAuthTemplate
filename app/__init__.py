@@ -8,12 +8,13 @@ engine, Base, Session = db_init(env)
 from .user.models import User
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 
 def create_app():
     app = FastAPI()
-    #app.config.from_mapping(env)
-
+    app.mount(path = "/user/statics", app = StaticFiles(directory="app/user/statics"), name="user_statics")
+    
     from .user import user_rt
     
     app.include_router(user_rt, prefix="/user")

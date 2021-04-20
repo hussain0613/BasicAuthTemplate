@@ -6,6 +6,7 @@
 from . import Session, user_api_rt, env
 from .models import User
 from .pydantic_models import (LoginModel, SignUpModel, RequestResetPasswordModel, ResetPasswordModel)
+from .utils import check_n_set_auth_head
 
 from fastapi import Response, Request, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -19,15 +20,19 @@ async def get_current_user(token:str = Depends(oauth2_scheme)):
 
 
 async def dahsboard(request:Request):
-    token = request.headers.get("Authorization")
-    if(token):
-        resp = User.verify_login_token(token.split()[1], Session(), env['SECRET_KEY'])
-        if(resp.get('user')): 
-            resp['message'] = f"Hello! you are logged in as {resp['user']['username']}"
+    resp = Response()
+    resp.headers['content-type'] = 'application/json'
+    user = check_n_set_auth_head(request, resp)
+    if user:
+        r_dict = {}
+        r_dict['message'] = f"Hello! you are logged in as {user['username']}"
+        r_dict['user'] = user
+        resp.body = json.dumps(r_dict, default=str).encode()
         return resp
     
     return {
         "Message": "Hello. You are in not logged in dashboard now",
+        "user":None,
         "links":{
             "login":{
                 'api': request.url_for('user.api.login')#'https://127.0.0.1:800/user/api/login'
@@ -35,7 +40,7 @@ async def dahsboard(request:Request):
             'signup': {
                 'api': request.url_for('user.api.signup')
             },
-            #'testing': request.url_for('statics')
+            'testing': request.url_for('user_statics', path="/index.html")
         }
     }
 
@@ -76,12 +81,9 @@ async def login(**data):
             resp.headers['content-type'] = 'application/json'
             resp.body = json.dumps({'access_token': res['token'], 'token_type': 'bearer'}).encode()
             return resp
-        else:
-            resp = Response()
-            resp.status_code = 400
-            resp.body = json.dumps({'detail': "invalid username/password_1"}).encode()
-    else:
-        resp.body = json.dumps({'detail': "invalid username/password_2"}).encode()
+        
+    resp.headers['content-type'] = 'application/json'
+    resp.body = json.dumps({'detail': "invalid username/password_2"}).encode()
     return resp
 
 async def login_form(request:Request, form_data: OAuth2PasswordRequestForm = Depends()):

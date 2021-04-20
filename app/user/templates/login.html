@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <script type="text/javascript" src="{{ url_for('user_statics', path='/logout.js') }}"></script>
+        <script type="text/javascript" src="{{ url_for('user_statics', path='/login.js') }}"></script>
+    </head>
+    <body>
+        <from id = "login-form" onsubmit = "return login()" >
+            <input type="text" placeholder="username" id ='username'>
+            <input type="password" placeholder="password" id ='password'>
+            <input type="checkbox" name="" id="remember_me"> Remember me
+            <input type="text" value="not_yet_implemented_csrf_token" hidden>
+            <input type="submit" value="Login">
+        </from>
+        
+        <div id = "demo">
+
+        </div>
+    </body>
+</html>

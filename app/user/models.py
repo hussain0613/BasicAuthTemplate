@@ -14,7 +14,7 @@ import secrets
 
 import re
 
-from .utils import naming_convention
+#from .utils import naming_convention
 
 #Base = declarative_base(metadata=sa.MetaData(naming_convention=naming_convention))
 
