@@ -14,7 +14,7 @@ import secrets
 
 import re
 
-from .utils import naming_convention
+from .db_utils import naming_convention, same_as
 
 #Base = declarative_base(metadata=sa.MetaData(naming_convention=naming_convention))
 
@@ -33,9 +33,9 @@ class User(Base):
     uid = sa.Column("uid", sa.String(200), default = secrets.token_urlsafe, unique = True)
 
     created = sa.Column(sa.TIMESTAMP(timezone=True), server_default = sa.func.now())
-    created_by = sa.Column(sa.Integer, sa.ForeignKey(f"{__tablename__}.id"))
+    created_by = sa.Column(sa.Integer, sa.ForeignKey(f"{__tablename__}.id"), default=same_as('id'))
     last_modified = sa.Column(sa.TIMESTAMP(timezone=True), server_default = sa.func.now(), server_onupdate=sa.func.now())
-    last_modified_by = sa.Column(sa.Integer, sa.ForeignKey(f"{__tablename__}.id"))
+    last_modified_by = sa.Column(sa.Integer, sa.ForeignKey(f"{__tablename__}.id"), default=same_as('id'), onupdate =same_as('id'))
 
     @hybrid_property
     def name(self) -> str:
@@ -124,9 +124,13 @@ class User(Base):
         else:
             return {"Message": "Wrong password"}
 
-    def save(self, session):
+    def save(self, session, last_modified_by:int = None):
         self.session = session
         try:
+            if last_modified_by:
+                self.last_modified_by = last_modified_by
+            action = Action(user_id=self.last_modified_by, table_name= User.__tablename__, target_row_id=self.id, action="update")
+            session.add(action)
             session.add(self)
             session.commit()
             return {"Message": f"Information updated succesfully for user '{self.username}'"}
@@ -157,13 +161,13 @@ class User(Base):
             return {"message": 'token expired'}
         except BadSignature as err:
             return {"message": 'invalid token'}
-        uid = payload['uid']
-        scope = payload['scope']
+        uid = payload.get('uid')
+        scope = payload.get('scope')
         #user = User.get_user_by(session, uid = uid)
         if user and user.uid == uid and scope == "reset_password":
             user.password = new_password
             user.uid =  secrets.token_urlsafe(64)## uid changing
-            session.commit()
+            user.save(session)
             return {"message": "password changed succesfully"}
         else:
             return {"message": "invalid token"}
@@ -193,12 +197,12 @@ class User(Base):
             return {"message": 'token expired', "user": None}
         except BadSignature as err:
             return {"message": 'invalid token', "user": None}
-        uid = payload['uid']
-        uid2 = payload['uid2']
-        scope = payload['scope']
+        uid = payload.get('uid')
+        uid2 = payload.get('uid2')
+        scope = payload.get('scope')
         if uid and uid2 and scope == "login":
             user = User.get_user_by(session, uid=uid)
-            if bcrypt.checkpw(user.password.encode(), uid2.encode()):
+            if user and bcrypt.checkpw(user.password.encode(), uid2.encode()):
                 return {"message": "verified", "user": user.to_dict()}
             else:
                 return {"message": "invalid token", "user": None}
@@ -216,17 +220,29 @@ class User(Base):
             user = User(**kwargs)
             session.add(user)
             session.commit()
-            return user.to_dict()
+            if user.created_by == None:
+                user.created_by = user.id
+                user.last_modified = user.created ## to make sure so that last modified does not change here from created
+                user.last_modified_by = user.id
+            
+            action = Action(user_id=user.last_modified_by, table_name= User.__tablename__, target_row_id=user.id, action="insert")
+            session.add(action)
+            session.commit()
+            return {'message': 'user created successfully', 'user': user.to_dict()}
         except sa.exc.IntegrityError as err:
             if(session.bind.echo):
                 print(f"[!] {err._message()}")
-            return {"Message": err._message()}
+            return {"Message": err._message(), 'user': None}
         except TypeError as err:
-            return {"Message": str(err)}
+            return {"Message": str(err), 'user': None}
     
     def delete_user(session, **kwargs):
         user = User.get_user_by(**kwargs)
         if(user):
+            if (not kwargs.get('last_modified_by')):
+                user.last_modified_by = user.id
+            action = Action(user_id=user.last_modified_by, table_name= User.__tablename__, target_row_id=user.id, action="delete")
+            session.add(action)
             session.delete(user)
             session.commit()
             return {"message": "user removed succefully"}
@@ -256,6 +272,53 @@ class User(Base):
             'last_modified' : self.last_modified,
             'last_modified_by' : self.last_modified_by
         }
+
+
+
+class Action(Base):
+    __tablename__ = "actions"
+
+    id = sa.Column(sa.Integer, primary_key=True, autoincrement=True)
+
+    user_id = sa.Column(sa.Integer) ## it can have the id of some user whose account has been deleted already
+
+    table_name = sa.Column('target_table_name', sa.String(200))
+    target_row_id = sa.Column('target_row_id', sa.Integer)
+    action = sa.Column(sa.String(200))
+    details = sa.Column(sa.String(500))
+    time = sa.Column(sa.TIMESTAMP(timezone=True), server_default = sa.func.now())
+
+
+    def get_by_user_id(user_id:int, session):
+        actions = session.query(Action).filter_by(user_id = user_id).all()
+        return actions
+    
+    def get_all(session):
+        actions = session.query(Action).all()
+        return actions
+
+    def create_table(engine):
+        Action.__table__.create(bind = engine)
+    def drop_table(engine):
+        Action.__table__.drop(bind=engine)
+
+    def __repr__(self):
+        return f"<Action id={self.id}>"
+
+    def to_dict(self):
+        return {
+            'id' : self.id,
+            'user_id' : self.user_id,
+            'table_name' : self.table_name,
+            'action' : self.action,
+            #'password' : self.password,
+
+            'target_row_id' : self.target_row_id,
+
+            'time' : self.time,
+            'details': self.details
+        }
+
 
 if __name__ == "__main__":
     import os
