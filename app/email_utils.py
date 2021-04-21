@@ -44,7 +44,7 @@ if __name__ == "__main__":
     msg['Subject'] = 'Testing'
     
     
-    text= "Hello World Text"
+    text= "Hello World Texts"
     html = "<html><body><h1>Hello World</h1></body></html>"
     html_mime = MIMEText("<html><body><h1>Hello World</h1></body></html>", 'html')
     
@@ -55,6 +55,8 @@ if __name__ == "__main__":
     
     
     load_dotenv(".env")
+    SERVER_TYPE = os.getenv('SERVER_TYPE')
+    if(SERVER_TYPE): load_dotenv(SERVER_TYPE+".env")
     def get_env_vars():
         config = {
             "SECRET_KEY" : os.getenv("SECRET_KEY"),
@@ -68,8 +70,8 @@ if __name__ == "__main__":
         return config
     env = get_env_vars()
     
-    #server = EmailServer(env['MAIL_SERVER'], env['MAIL_PORT'], env['MAIL_USERNAME'], env['MAIL_PASSWORD'], env['MAIL_USE_TLS'])
-    server = EmailServer()
+    server = EmailServer(env['MAIL_SERVER'], env['MAIL_PORT'], env['MAIL_USERNAME'], env['MAIL_PASSWORD'], env['MAIL_USE_TLS'])
+    #server = EmailServer()
     
     server.send_message(msg)
     
