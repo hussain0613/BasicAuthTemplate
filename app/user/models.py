@@ -167,7 +167,7 @@ class User(Base):
         if user and user.uid == uid and scope == "reset_password":
             user.password = new_password
             user.uid =  secrets.token_urlsafe(64)## uid changing
-            session.commit()
+            user.save(session)
             return {"message": "password changed succesfully"}
         else:
             return {"message": "invalid token"}
