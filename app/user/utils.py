@@ -56,3 +56,23 @@ naming_convention = {
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
     "pk": "pk_%(table_name)s"
 }
+
+
+from . import env, Session
+from .models import User
+def check_n_set_auth_head(request, response) -> dict:
+    """
+    checks the request for authorization header, if found validates it, and if validated then returns user dict
+    otherwise returns None
+    """
+    auth_head = request.headers.get('authorization')
+    if auth_head:
+        tk = auth_head.split()
+        if(len(tk) ==2):
+            token = tk[1]
+            r = User.verify_login_token(token, Session(), env['SECRET_KEY'])
+            if r.get('user'):
+                response.headers['authorization'] = auth_head
+                return r['user']
+    return None
+            
