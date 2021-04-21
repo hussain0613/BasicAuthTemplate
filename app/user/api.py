@@ -4,7 +4,7 @@
 ## most probably don't need the csrf token as all important resources will be guarded by user's password
 
 from . import Session, user_api_rt, env
-from .models import User
+from .models import User, Action
 from .pydantic_models import (LoginModel, SignUpModel, RequestResetPasswordModel, ResetPasswordModel)
 from .utils import check_n_set_auth_head
 
@@ -130,4 +130,16 @@ async def reset_password(info:ResetPasswordModel, token:str,request:Request):
     return resp
 
 
+async def get_all_actions():
+    actions = Action.get_all(Session())
+    actions = [ac.to_dict() for ac in actions]
+    return {'actions': actions}
+
+
+async def get_actions(username):
+    ses = Session()
+    user = User.get_user_by(ses, username=username)
+    actions = Action.get_by_user_id(user.id, ses)
+    actions = [ac.to_dict() for ac in actions]
+    return {'actions':actions}
 
