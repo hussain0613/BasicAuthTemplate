@@ -3,11 +3,15 @@
 ## thn client will use it when submitting form
 ## most probably don't need the csrf token as all important resources will be guarded by user's password
 
-from . import Session, user_api_rt, env
+## ** remeber nam e ulta palta character dile unhandled exception raise kore
+## ** also kichu jaygay token return kortasi.. for test now.. pore bondho korte hobe
+
+from . import Session, user_api_rt, env, mail_client
 from .models import User, Action
 from .pydantic_models import (LoginModel, SignUpModel, RequestResetPasswordModel, ResetPasswordModel)
 from .utils import check_n_set_auth_head
 
+from email.message import MIMEPart
 from fastapi import Response, Request, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import json
@@ -31,7 +35,7 @@ async def dahsboard(request:Request):
         return resp
     
     return {
-        "Message": "Hello. You are in not logged in dashboard now",
+        "message": "Hello. You are in not logged in dashboard now",
         "user":None,
         "links":{
             "login":{
@@ -55,9 +59,31 @@ async def all_users(request:Request):
 async def profile(user:dict = Depends(get_current_user)):
     return user
 
-async def sign_up(info:SignUpModel, request:Request):
+
+async def request_signup(info:RequestResetPasswordModel, request:Request):
     data = await request.json()
-    resp = User.create_user(Session(), **data)
+    ses = Session()
+    resp = User.get_create_user_token(data.get('email'), env['SECRET_KEY'], Session())
+
+    if resp.get('token'):
+        mail_msg = MIMEPart()
+        mail_msg['From'] = f"{env['APP_NAME']}"
+        mail_msg['To'] = f"{data.get('email')}"
+        mail_msg['Subject'] = "Confirm Email"
+
+        mail_msg.set_content(
+            f"""Follow the link below to complete signup, duration 7 days:
+{request.url_for('signup_view')}?token={resp.get('token')}
+            """
+        )
+        mail_client.send_message(mail_msg)
+        #resp.pop('token')
+        resp['message'] = "email has been sent to user's email address with instructions"
+    return resp
+
+async def sign_up(info:SignUpModel, token:str, request:Request):
+    data = await request.json()
+    resp = User.create_user(Session(), token, env['SECRET_KEY'], **data)
     if resp.get('user'):
         if(resp['user'].get('password')): 
             resp['user'].pop('password')
@@ -118,14 +144,30 @@ async def logout():
 
 async def request_reset_password(info:RequestResetPasswordModel, request:Request):
     data = await request.json()
-    resp = User.get_reset_password_token(data.get('email'), env['SECRET_KEY'], Session())
+    ses = Session()
+    resp = User.get_reset_password_token(data.get('email'), env['SECRET_KEY'], ses)
+
+    if resp.get('token'):
+        mail_msg = MIMEPart()
+        mail_msg['From'] = f"{env['APP_NAME']}"
+        mail_msg['To'] = f"{User.get_user_by(ses, email = data.get('email')).email}"
+        mail_msg['Subject'] = "Reset Password Request"
+
+        mail_msg.set_content(
+            f"""Follow the link below to change reset your password, duration 5 minutes:
+{request.url_for('reset_password_veiw')}?token={resp['token']}
+            """
+        )
+        mail_client.send_message(mail_msg)
+        #resp.pop('token')
+    resp['message'] = "email has been sent to user's email address with instructions"
     return resp
 
-async def reset_password(info:ResetPasswordModel, token:str,request:Request):
+async def reset_password(info:ResetPasswordModel, token:str, request:Request):
     data = await request.json()
     email = data.get('email')
     pw = data.get('password')
-    if(not token or not pw): return {"Message": "missing token/new password"}
+    if(not token or not pw): return {"message": "missing token/new password"}
     resp = User.reset_password(email, pw, token, env['SECRET_KEY'], Session())
     return resp
 

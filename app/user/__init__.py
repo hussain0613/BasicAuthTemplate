@@ -1,4 +1,4 @@
-from .. import Base, Session, env
+from .. import Base, Session, env, mail_client
 
 from fastapi import APIRouter
 

@@ -1,12 +1,12 @@
 from .config import get_env_vars
 from .utils import db_init
-from .email_utils import EmailServer
+from .email_utils import EmailClient
 
 env = get_env_vars()
 
 engine, Base, Session = db_init(env)
 
-mail_server = EmailServer(env['MAIL_SERVER'], env['MAIL_PORT'], env['MAIL_USERNAME'], env['MAIL_PASSWORD'], env['MAIL_USE_TLS'])
+mail_client = EmailClient(env['MAIL_SERVER'], env['MAIL_PORT'], env['MAIL_USERNAME'], env['MAIL_PASSWORD'], env['MAIL_USE_TLS'])
 
 
 from fastapi import FastAPI

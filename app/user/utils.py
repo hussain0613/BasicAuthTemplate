@@ -1,4 +1,7 @@
 import typing
+from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
+from itsdangerous.exc import SignatureExpired, BadSignature
+import bcrypt
 
 ## ei duita .env e rakhte hobe
 #alpha1 = "`1234567890-=~!@#$%^&*()_+qwertyuiop[]QWERTYUIOP{}|asdfghjkl;'ASDFGHJKL:\"zxcvbnm,./ZXCVBNM<>? "
@@ -49,13 +52,8 @@ def verify_token(token:str, secret_key:str, headers:typing.Optional[dict] = None
     else:
         return {}
 
-naming_convention = {
-    "ix": 'ix_%(column_0_label)s',
-    "uq": "uq_%(table_name)s_%(column_0_name)s",
-    "ck": "ck_%(table_name)s_%(column_0_name)s",
-    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
-    "pk": "pk_%(table_name)s"
-}
+
+
 
 
 from . import env, Session
@@ -76,3 +74,19 @@ def check_n_set_auth_head(request, response) -> dict:
                 return r['user']
     return None
             
+
+def create_timed_token(scope:str, payload:dict, signature:str, duration:int = 300):
+    s = Serializer(signature, duration)
+    payload['scope'] = bcrypt.hashpw(scope.encode(), bcrypt.gensalt())
+    return s.dumps(payload).decode()
+
+def verify_timed_token(scope:str, token:str, signature:str):
+    s = Serializer(signature)
+    try:
+        payload = s.loads(token.encode())
+        if(payload.get('scope') and bcrypt.checkpw(scope, payload['scope'])): return {'message': 'verified', 'payload': payload}
+        else: return {'message': 'invalid token', 'payload': None}
+    except SignatureExpired as err:
+        return {"message": 'token expired', 'payload': None}
+    except BadSignature as err:
+        return {"message": 'invalid token', 'payload': None}

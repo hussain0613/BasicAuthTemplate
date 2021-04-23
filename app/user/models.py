@@ -95,7 +95,7 @@ class User(Base):
 
             return {'message': 'new username queued for storage'}
         else:
-            return {"Message": "Wrong password"}
+            return {"message": "Wrong password"}
         
     #@email.setter
     def set_email(self, email:str, passowrd:str):
@@ -103,7 +103,7 @@ class User(Base):
             self.email = email
             return {'message': 'new email queued for storage'}
         else:
-            return {"Message": "Wrong password"}
+            return {"message": "Wrong password"}
     
     def set_password(self, new_password:str, old_password:str):
         if self.check_password(old_password):
@@ -111,7 +111,7 @@ class User(Base):
             self.set_uid() ## so that whenever someone changes there password uid will change too
             return {'message': 'new password queued for storage'}
         else:
-            return {"Message": "Wrong old password"}
+            return {"message": "Wrong old password"}
     
 
     def check_password(self, password:str) -> bool:
@@ -122,102 +122,113 @@ class User(Base):
             self.uid = secrets.token_urlsafe(64)
             return {'message': 'new uid queued for storage'}
         else:
-            return {"Message": "Wrong password"}
+            return {"message": "Wrong password"}
 
     def save(self, session, last_modified_by:int = None):
         self.session = session
         try:
             if last_modified_by:
                 self.last_modified_by = last_modified_by
+            else:
+                self.last_modified_by = self.id
             action = Action(user_id=self.last_modified_by, table_name= User.__tablename__, target_row_id=self.id, action="update")
             session.add(action)
             session.add(self)
             session.commit()
-            return {"Message": f"Information updated succesfully for user '{self.username}'"}
+            return {"message": f"Information updated succesfully for user '{self.username}'"}
         except sa.exc.IntegrityError as err:
             if User.__tablename__+'.uid' in err._message():
                 self.uid = secrets.token_urlsafe(64)
                 session.rollback()
                 return self.save(session)
-            return {"Message": err._message()}
+            return {"message": err._message()}
 
     
-    def get_reset_password_token(email: str, secret_key:str, session) -> str:
-        user = User.get_user_by(session, email = email)
-        if(user):
-            s = Serializer(user.uid + secret_key + user.password, 300)
-            return {"Message": "Genereted token succesfully, need to implement mail to email",
-            "Token":s.dumps({"uid": user.uid, "scope": "reset_password"}).decode()}
-        else:
-            return {"Message": f"User with email='{email}' does not exist"}
-
-    def reset_password(email:str, new_password: str, token:str, secret_key: str, session) -> dict:
-        user = User.get_user_by(session, email = email)
-        if(not user): return {"message": "wrong email"}
-        s = Serializer(user.uid + secret_key + user.password)
-        try:
-            payload = s.loads(token.encode())
-        except SignatureExpired as err:
-            return {"message": 'token expired'}
-        except BadSignature as err:
-            return {"message": 'invalid token'}
-        uid = payload.get('uid')
-        scope = payload.get('scope')
-        #user = User.get_user_by(session, uid = uid)
-        if user and user.uid == uid and scope == "reset_password":
-            user.password = new_password
-            user.uid =  secrets.token_urlsafe(64)## uid changing
-            user.save(session)
-            return {"message": "password changed succesfully"}
-        else:
-            return {"message": "invalid token"}
-        
-
     def get_user_by(session, **kwargs):
         user = session.query(User).filter_by(**kwargs).first()
         if(user):
             user.session = session
         return user
     
+    
+    def get_all(session):
+        users = session.query(User).all()
+        return users
+    
+
+    def get_reset_password_token(email: str, secret_key:str, session) -> str:
+        user = User.get_user_by(session, email = email)
+        if(user):
+            payload = {"uid": user.uid, "scope": "reset_password"}
+            token = User.generate_timed_token("reset_password", payload, user.uid + secret_key + user.password, 300)
+            return {"message": "Genereted token succesfully, duration 5 mins, need to implement mail to email address", "token": token}
+        else:
+            return {"message": f"User with email='{email}' does not exist"}
+
+    def reset_password(email:str, new_password: str, token:str, secret_key: str, session) -> dict:
+        user = User.get_user_by(session, email = email)
+        if(not user): return {"message": "wrong email"}
+        
+        r = User.verify_timed_token("reset_password", token, user.uid + secret_key + user.password)
+        
+        if(r.get('payload')): payload = r['payload']
+        else:
+            return {'message': r.get('message')}
+        
+        uid = payload.get('uid')
+        
+        if user and user.uid == uid:
+            user.password = new_password
+            user.uid =  secrets.token_urlsafe(64)## uid changing
+            user.save(session)
+            return {"message": "password changed succesfully"}
+        else:
+            return {"message": "invalid token"}
+
 
     def get_login_token(session, secret_key, password, **kwargs):
         user = User.get_user_by(session, **kwargs)
         if(user and user.check_password(password)):
-            s = Serializer(secret_key, 15811200) # about 1/2 a year
-            return {"message": f"Successfully logged in as {user.username}", 
-            "token": s.dumps({"uid": user.uid, "uid2": bcrypt.hashpw(user.password.encode(), bcrypt.gensalt()).decode(),"scope": "login"}).decode()}
+            payload = {"uid": user.uid, "uid2": bcrypt.hashpw(user.password.encode(), bcrypt.gensalt()).decode()}
+            token = User.generate_timed_token('login', payload, secret_key, 15811200)
+            return {"message": f"Successfully logged in as {user.username}, duration half a year", "token": token}
         else:
             return {"message": "wrong username/password", "token": None}
     
+    
     def verify_login_token(token, session, secret_key):
-        s = Serializer(secret_key)
-        try:
-            payload = s.loads(token.encode())
-        except SignatureExpired as err:
-            return {"message": 'token expired', "user": None}
-        except BadSignature as err:
-            return {"message": 'invalid token', "user": None}
+        r = User.verify_timed_token('login', token, secret_key)
+        
+        if(r.get('payload')): payload = r['payload']
+        else:
+            return {'message': r.get('message'), 'user': None}
+        
         uid = payload.get('uid')
         uid2 = payload.get('uid2')
-        scope = payload.get('scope')
-        if uid and uid2 and scope == "login":
+        if uid and uid2:
             user = User.get_user_by(session, uid=uid)
             if user and bcrypt.checkpw(user.password.encode(), uid2.encode()):
                 return {"message": "verified", "user": user.to_dict()}
-            else:
-                return {"message": "invalid token", "user": None}
-        else:
-            return {"message": "invalid token", "user": None}
         
-
-    def get_all(session):
-        users = session.query(User).all()
-        return users
+        return {"message": "invalid token", "user": None}
 
 
-    def create_user(session, **kwargs) -> dict:
+    def get_create_user_token(email, secret_key, session):
+        user = User.get_user_by(session, email = email)
+        if user:
+            return {'message': 'user with this email already exists, if u have forgotten ur password visit <url>', 'token': None}
+        token = User.generate_timed_token('create_user', {'email': email}, secret_key, 604800) ## 7 days
+        return {'message': 'generated token succesfully, duration 7 days, need to implement mail to email address', 'token': token}
+
+    def create_user(session, token, secret_key, **kwargs) -> dict:
+        r = User.verify_timed_token('create_user', token, secret_key)
+        if r.get('payload'): email = r['payload'].get('email')
+        else:
+            return {'message': r.get('message'), 'user': None}
+        
         try:
             user = User(**kwargs)
+            if(user.email != email): return {'message': 'email mismatch', 'user': None}
             session.add(user)
             session.commit()
             if user.created_by == None:
@@ -232,9 +243,10 @@ class User(Base):
         except sa.exc.IntegrityError as err:
             if(session.bind.echo):
                 print(f"[!] {err._message()}")
-            return {"Message": err._message(), 'user': None}
+            return {"message": err._message(), 'user': None}
         except TypeError as err:
-            return {"Message": str(err), 'user': None}
+            return {"message": str(err), 'user': None}
+    
     
     def delete_user(session, **kwargs):
         user = User.get_user_by(**kwargs)
@@ -247,7 +259,7 @@ class User(Base):
             session.commit()
             return {"message": "user removed succefully"}
         else:
-            return {"Message": "User does not exist"}
+            return {"message": "User does not exist"}
 
     def create_table(engine):
         User.__table__.create(bind = engine)
@@ -273,6 +285,24 @@ class User(Base):
             'last_modified_by' : self.last_modified_by
         }
 
+
+    def generate_timed_token(scope:str, payload:dict, signature:str, duration:int = 300):
+        s = Serializer(signature, duration)
+        payload['scope'] = bcrypt.hashpw(scope.encode(), bcrypt.gensalt()).decode()
+        return s.dumps(payload).decode()
+
+    def verify_timed_token(scope:str, token:str, signature:str):
+        s = Serializer(signature)
+        try:
+            payload = s.loads(token.encode())
+            if(payload.get('scope') and bcrypt.checkpw(scope.encode(), payload['scope'].encode())): 
+                return {'message': 'verified', 'payload': payload}
+            else: 
+                return {'message': 'invalid token 1', 'payload': None}
+        except SignatureExpired as err:
+            return {"message": 'token expired', 'payload': None}
+        except BadSignature as err:
+            return {"message": 'invalid token 2', 'payload': None}
 
 
 class Action(Base):
@@ -354,7 +384,7 @@ if __name__ == "__main__":
     #print(u)
     #token = User.get_reset_password_token("matha@mail.com", env['SECRET_KEY'], session)
     #print(token)
-    #print(User.reset_password("reset_pass", token['Token'], env["SECRET_KEY"], session))
+    #print(User.reset_password("reset_pass", token['token'], env["SECRET_KEY"], session))
     #print(User.get_all(session))
     
     #User.create_table(engine)

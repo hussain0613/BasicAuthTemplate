@@ -3,7 +3,7 @@ import smtplib
 
 #tls port 587
 
-class EmailServer():
+class EmailClient():
     def __init__(self, host='localhost', port=465, username=None, password=None, use_tls=False):
         self.host = host
         self.port = port
@@ -55,7 +55,7 @@ if __name__ == "__main__":
     
     
     load_dotenv(".env")
-    SERVER_TYPE = os.getenv('SERVER_TYPE')
+    SERVER_TYPE = os.getenv('ENVIRONMENT_TYPE')
     if(SERVER_TYPE): load_dotenv(SERVER_TYPE+".env")
     def get_env_vars():
         config = {
@@ -70,7 +70,7 @@ if __name__ == "__main__":
         return config
     env = get_env_vars()
     
-    server = EmailServer(env['MAIL_SERVER'], env['MAIL_PORT'], env['MAIL_USERNAME'], env['MAIL_PASSWORD'], env['MAIL_USE_TLS'])
+    server = EmailClient(env['MAIL_SERVER'], env['MAIL_PORT'], env['MAIL_USERNAME'], env['MAIL_PASSWORD'], env['MAIL_USE_TLS'])
     #server = EmailServer()
     
     server.send_message(msg)
